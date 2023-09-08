@@ -1,0 +1,122 @@
+version: '3.1'
+
+services:
+  db:
+    container_name: db
+    image: mysql:8.0
+    restart: always
+    volumes:
+      - './zabbix/mysql:/var/lib/data'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.2
+
+  proxy-db:
+    container_name: proxy-db
+    image: yobasystems/alpine-mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PROXY_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${PROXY_MYSQL_DATABASE}
+      MYSQL_USER: ${PROXY_MYSQL_USER}
+      MYSQL_PASSWORD: ${PROXY_MYSQL_PASSWORD}
+    volumes:
+      - ./nginx/mysql:/var/lib/mysql
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.40
+
+  proxy-manager:
+    container_name: proxy-manager
+    image: jc21/nginx-proxy-manager:latest
+    restart: always
+    depends_on:
+      - proxy-db
+    environment:
+      DB_MYSQL_HOST: proxy-db
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: ${PROXY_MYSQL_USER}
+      DB_MYSQL_PASSWORD: ${PROXY_MYSQL_PASSWORD}
+      DB_MYSQL_NAME: ${PROXY_MYSQL_DATABASE}
+    volumes:
+      - ./nginx/data:/data/ngxproxy
+      - ./nginx/data/letsencrypt:/etc/letsencrypt
+    ports:
+      - 80:80
+      - 81:81
+      - 443:443
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.30
+
+  zabbix-server:
+    container_name: zabbix-server
+    image: zabbix/zabbix-server-mysql
+    restart: always
+    ports:
+      - '10051:10051'
+    depends_on:
+      - db
+    environment:
+      DB_SERVER_HOST: db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.3
+
+  zabbix-frontend:
+    container_name: zabbix-frontend
+    image: zabbix/zabbix-web-apache-mysql
+    restart: always
+    volumes:
+     - '/etc/httpd/ssl/:/etc/ssl/apache2'
+    depends_on:
+      - db
+      - zabbix-server
+    environment:
+      DB_SERVER_HOST: db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      ZBX_SERVER_HOST: zabbix-server
+    ports:
+      - 8080:8080
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.10
+
+  zabbix-agent:
+    container_name: zabbix-agent
+    image: zabbix/zabbix-agent
+    restart: always
+    ports:
+      - '10050:10050'
+    volumes:
+      - /var/run:/var/run
+    environment:
+      ZBX_SERVER_HOST: 172.16.238.3
+    networks:
+      zabbix:
+        ipv4_address: 172.16.238.20
+  grafana:
+    container_name: grafana
+    image: grafana/grafana-oss
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      - GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
+    networks:
+      - zabbix
+    depends_on:
+      - zabbix-server
+
+networks:
+  zabbix:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.238.0/24
