@@ -53,12 +53,18 @@ services:
 
   zabbix-server:
     container_name: zabbix-server
-    image: zabbix/zabbix-server-mysql
+    build:
+      context: ./zabbix-server-custom
+      dockerfile: Dockerfile
     restart: always
     ports:
       - '10051:10051'
     depends_on:
       - db
+    volumes:
+      - './zabbix/externalscripts:/usr/lib/zabbix/externalscripts'
+      - '/etc/localtime:/etc/localtime:ro'
+      - '/etc/timezone:/etc/timezone:ro'
     environment:
       DB_SERVER_HOST: db
       MYSQL_USER: root
@@ -72,7 +78,7 @@ services:
     image: zabbix/zabbix-web-apache-mysql
     restart: always
     volumes:
-     - '/etc/httpd/ssl/:/etc/ssl/apache2'
+      - '/etc/httpd/ssl/:/etc/ssl/apache2'
     depends_on:
       - db
       - zabbix-server
@@ -100,6 +106,7 @@ services:
     networks:
       zabbix:
         ipv4_address: 172.16.238.20
+
   grafana:
     container_name: grafana
     image: grafana/grafana-oss
@@ -108,6 +115,8 @@ services:
       - '3000:3000'
     environment:
       - GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
+    volumes:
+      - ./grafana/data:/var/lib/grafana
     networks:
       - zabbix
     depends_on:
