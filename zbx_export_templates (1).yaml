@@ -1,0 +1,160 @@
+zabbix_export:
+  version: '6.0'
+  date: '2025-03-07T11:33:07Z'
+  groups:
+    -
+      uuid: 31a91a882b374599874e728ea4d6f0a4
+      name: Whois_SSL
+  templates:
+    -
+      uuid: cfbfbb5eda864fddad1f94a1d323941c
+      template: 'Whois SSL'
+      name: 'Whois SSL'
+      groups:
+        -
+          name: Whois_SSL
+      items:
+        -
+          uuid: a7bc709aadd64887aab20d9b1b469c39
+          name: Domain
+          type: DEPENDENT
+          key: domain
+          delay: '0'
+          trends: '0'
+          value_type: TEXT
+          preprocessing:
+            -
+              type: JSONPATH
+              parameters:
+                - $.domain
+          master_item:
+            key: 'whois_ssl.sh[{HOST.HOST}]'
+        -
+          uuid: f767eb0d785646d9be2ccd111f048c77
+          name: 'SSL Date'
+          type: DEPENDENT
+          key: ssl.date
+          delay: '0'
+          trends: '0'
+          value_type: TEXT
+          preprocessing:
+            -
+              type: JSONPATH
+              parameters:
+                - $.ssl_date
+          master_item:
+            key: 'whois_ssl.sh[{HOST.HOST}]'
+        -
+          uuid: f3e7a18f4ebc4e429ecc75d27f19b0e6
+          name: 'SSL Diff Days'
+          type: DEPENDENT
+          key: ssl.diff.days
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            -
+              type: JSONPATH
+              parameters:
+                - $.ssl_diff_days
+          master_item:
+            key: 'whois_ssl.sh[{HOST.HOST}]'
+          triggers:
+            -
+              uuid: d5b68afa723642ee83279ae30ddcb7f5
+              expression: 'last(/Whois SSL/ssl.diff.days)<=7'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/ssl.diff.days)>7'
+              name: '7 Dias para expiração do Certificado {HOST.HOST}'
+              priority: HIGH
+              manual_close: 'YES'
+            -
+              uuid: 28d323f7b12f4309957fb5f5ce5ce5ce
+              expression: 'last(/Whois SSL/ssl.diff.days)<=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/ssl.diff.days)>1'
+              name: 'Certificado {HOST.HOST} Expirado'
+              priority: DISASTER
+              manual_close: 'YES'
+        -
+          uuid: 263463168aa64e32a199577a0edca571
+          name: 'Whois Date'
+          type: DEPENDENT
+          key: whois.date
+          delay: '0'
+          trends: '0'
+          value_type: TEXT
+          preprocessing:
+            -
+              type: JSONPATH
+              parameters:
+                - $.whois_date
+          master_item:
+            key: 'whois_ssl.sh[{HOST.HOST}]'
+        -
+          uuid: 5efe375325df409e80a939c3ef475b11
+          name: 'Whois Diff Days'
+          type: DEPENDENT
+          key: whois.diff.days
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            -
+              type: JSONPATH
+              parameters:
+                - $.whois_diff_days
+          master_item:
+            key: 'whois_ssl.sh[{HOST.HOST}]'
+          triggers:
+            -
+              uuid: d41cf5907793470aa882a9be239d2dcc
+              expression: 'last(/Whois SSL/whois.diff.days)<=7'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/whois.diff.days)>7'
+              name: '7 Dias para expiração do Dominio: {HOST.HOST}'
+              priority: HIGH
+              manual_close: 'YES'
+            -
+              uuid: 345ba285b96d4b8a86d7dfe9b60a78a8
+              expression: 'last(/Whois SSL/whois.diff.days)<=15'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/whois.diff.days)>15'
+              name: '15 Dias para expiração do Dominio {HOST.HOST}'
+              priority: AVERAGE
+              manual_close: 'YES'
+            -
+              uuid: cadf3dd168964c77b6217abdff836e66
+              expression: 'last(/Whois SSL/whois.diff.days)<=30'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/whois.diff.days)>30'
+              name: '30 Dias para expiração do Dominio {HOST.HOST}'
+              priority: INFO
+              manual_close: 'YES'
+            -
+              uuid: 3418b281afd74b4b94b446f09c235131
+              expression: 'last(/Whois SSL/whois.diff.days)<=75'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/whois.diff.days)>75'
+              name: '75 Dias para expiração do Dominio {HOST.HOST}'
+              priority: INFO
+              manual_close: 'YES'
+            -
+              uuid: f2ec398935de486ca90f70b13438af34
+              expression: 'last(/Whois SSL/whois.diff.days)<=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Whois SSL/whois.diff.days)>1'
+              name: 'Dominio {HOST.HOST} Expirado'
+              priority: DISASTER
+              manual_close: 'YES'
+        -
+          uuid: 7bc850f901284f68b8aa0d75aaffc09b
+          name: 'Whois SSL'
+          type: EXTERNAL
+          key: 'whois_ssl.sh[{HOST.HOST}]'
+          delay: 720m
+          trends: '0'
+          value_type: TEXT
+      macros:
+        -
+          macro: '{$CLIENTE}'
+        -
+          macro: '{$EMAIL}'
