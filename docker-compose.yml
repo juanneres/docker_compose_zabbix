@@ -1,131 +1,262 @@
-version: '3.1'
-
 services:
-  db:
-    container_name: db
-    image: mysql:8.0
-    restart: always
-    volumes:
-      - './zabbix/mysql:/var/lib/data'
+  postgres-server:
+    image: postgres:16-alpine
+    container_name: zabbix-postgres
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    networks:
-      zabbix:
-        ipv4_address: 172.16.238.2
-
-  proxy-db:
-    container_name: proxy-db
-    image: yobasystems/alpine-mariadb
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: ${PROXY_MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${PROXY_MYSQL_DATABASE}
-      MYSQL_USER: ${PROXY_MYSQL_USER}
-      MYSQL_PASSWORD: ${PROXY_MYSQL_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zabbix}
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - ./nginx/mysql:/var/lib/mysql
+      - postgres-data:/var/lib/postgresql/data
     networks:
-      zabbix:
-        ipv4_address: 172.16.238.40
-
-  proxy-manager:
-    container_name: proxy-manager
-    image: jc21/nginx-proxy-manager:latest
-    restart: always
-    depends_on:
-      - proxy-db
-    environment:
-      DB_MYSQL_HOST: proxy-db
-      DB_MYSQL_PORT: 3306
-      DB_MYSQL_USER: ${PROXY_MYSQL_USER}
-      DB_MYSQL_PASSWORD: ${PROXY_MYSQL_PASSWORD}
-      DB_MYSQL_NAME: ${PROXY_MYSQL_DATABASE}
-    volumes:
-      - ./nginx/data:/data/ngxproxy
-      - ./nginx/data/letsencrypt:/etc/letsencrypt
-    ports:
-      - 80:80
-      - 81:81
-      - 443:443
-    networks:
-      zabbix:
-        ipv4_address: 172.16.238.30
+      - zabbix-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zabbix}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   zabbix-server:
+    image: zabbix/zabbix-server-pgsql:${ZABBIX_VERSION:-7.4}-alpine-latest
     container_name: zabbix-server
-    build:
-      context: ./zabbix-server-custom
-      dockerfile: Dockerfile
-    restart: always
-    ports:
-      - '10051:10051'
+    restart: unless-stopped
     depends_on:
-      - db
-    volumes:
-      - './zabbix/externalscripts:/usr/lib/zabbix/externalscripts'
-      - '/etc/localtime:/etc/localtime:ro'
-      - '/etc/timezone:/etc/timezone:ro'
+      postgres-server:
+        condition: service_healthy
     environment:
-      DB_SERVER_HOST: db
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    networks:
-      zabbix:
-        ipv4_address: 172.16.238.3
-
-  zabbix-frontend:
-    container_name: zabbix-frontend
-    image: zabbix/zabbix-web-apache-mysql
-    restart: always
+      DB_SERVER_HOST: postgres-server
+      DB_SERVER_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zabbix}
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      ZBX_CACHESIZE: ${ZBX_CACHESIZE:-128M}
+      ZBX_CACHEUPDATEFREQUENCY: ${ZBX_CACHEUPDATEFREQUENCY:-60}
+      ZBX_STARTDBSYNCERS: ${ZBX_STARTDBSYNCERS:-4}
+      ZBX_HISTORYSTORAGETYPES: ${ZBX_HISTORYSTORAGETYPES:-uint,dbl,str,log,text}
+      ZBX_VALUECACHESIZE: ${ZBX_VALUECACHESIZE:-256M}
+      ZBX_TRAPPERIMEOUT: ${ZBX_TRAPPERIMEOUT:-300}
+      ZBX_UNREACHABLEPERIOD: ${ZBX_UNREACHABLEPERIOD:-45}
+      ZBX_UNAVAILABLEDELAY: ${ZBX_UNAVAILABLEDELAY:-60}
+      ZBX_ALERTSCRIPTS_PATH: /usr/lib/zabbix/alertscripts
+      ZBX_EXTERNALSCRIPTS: /usr/lib/zabbix/externalscripts
+      ZBX_TIMEOUT: ${ZBX_TIMEOUT:-4}
     volumes:
-      - '/etc/httpd/ssl/:/etc/ssl/apache2'
+      - zabbix-server-alertscripts:/usr/lib/zabbix/alertscripts
+      - zabbix-server-externalscripts:/usr/lib/zabbix/externalscripts
+      - zabbix-server-modules:/var/lib/zabbix/modules
+      - zabbix-server-enc:/var/lib/zabbix/enc
+      - zabbix-server-ssh:/var/lib/zabbix/ssh_keys
+      - zabbix-server-ssl:/var/lib/zabbix/ssl
+      - zabbix-server-ssl-certs:/var/lib/zabbix/ssl/certs
+      - zabbix-server-ssl-keys:/var/lib/zabbix/ssl/keys
+      - zabbix-server-ssl-ca:/var/lib/zabbix/ssl/ca
+    networks:
+      - zabbix-network
+    ports:
+      - "${ZBX_SERVER_PORT:-10051}:10051"
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 20000
+        hard: 40000
+    healthcheck:
+      test: ["CMD-SHELL", "zabbix_server --help || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  zabbix-web:
+    image: zabbix/zabbix-web-apache-pgsql:${ZABBIX_VERSION:-7.4}-alpine-latest
+    container_name: zabbix-web
+    restart: unless-stopped
     depends_on:
-      - db
+      - postgres-server
       - zabbix-server
     environment:
-      DB_SERVER_HOST: db
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       ZBX_SERVER_HOST: zabbix-server
-    ports:
-      - 8080:8080
+      ZBX_SERVER_PORT: 10051
+      DB_SERVER_HOST: postgres-server
+      DB_SERVER_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-zabbix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zabbix}
+      POSTGRES_DB: ${POSTGRES_DB:-zabbix}
+      PHP_TZ: ${PHP_TZ:-America/Sao_Paulo}
+      ZBX_SERVER_NAME: ${ZBX_SERVER_NAME:-Zabbix Server}
+    volumes:
+      - zabbix-web-etc:/etc/zabbix/web
     networks:
-      zabbix:
-        ipv4_address: 172.16.238.10
+      - zabbix-network
+    ports:
+      - "${ZBX_WEB_PORT:-8080}:8080"
+      - "${ZBX_WEB_HTTPS_PORT:-8443}:8443"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   zabbix-agent:
+    image: zabbix/zabbix-agent:${ZABBIX_VERSION:-7.4}-alpine-latest
     container_name: zabbix-agent
-    image: zabbix/zabbix-agent
-    restart: always
-    ports:
-      - '10050:10050'
-    volumes:
-      - /var/run:/var/run
-    environment:
-      ZBX_SERVER_HOST: 172.16.238.3
-    networks:
-      zabbix:
-        ipv4_address: 172.16.238.20
-
-  grafana:
-    container_name: grafana
-    image: grafana/grafana-oss
-    restart: always
-    ports:
-      - '3000:3000'
-    environment:
-      - GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
-    volumes:
-      - ./grafana/data:/var/lib/grafana
-    networks:
-      - zabbix
+    restart: unless-stopped
     depends_on:
       - zabbix-server
+    environment:
+      ZBX_HOSTNAME: ${ZBX_AGENT_HOSTNAME:-Zabbix server}
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: 10051
+      ZBX_SERVER_ACTIVE: zabbix-server:10051
+      ZBX_METADATA: ${ZBX_METADATA:-}
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - zabbix-network
+    pid: host
+    privileged: false
+    healthcheck:
+      test: ["CMD-SHELL", "zabbix_agentd --help || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-11.0.0}
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      postgres-server:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: alexanderzobnin-zabbix-app
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: alexanderzobnin-zabbix-app
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: postgres-server:5432
+      GF_DATABASE_NAME: ${GRAFANA_DB_NAME:-grafana}
+      GF_DATABASE_USER: ${POSTGRES_USER:-zabbix}
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-zabbix}
+      GF_DATABASE_SSL_MODE: disable
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_SERVER_SERVE_FROM_SUB_PATH: false
+      GF_USERS_ALLOW_SIGN_UP: ${GRAFANA_ALLOW_SIGN_UP:-false}
+      GF_ANALYTICS_REPORTING_ENABLED: ${GRAFANA_ANALYTICS_REPORTING:-false}
+      GF_ANALYTICS_CHECK_FOR_UPDATES: ${GRAFANA_CHECK_UPDATES:-false}
+      GF_LOG_LEVEL: ${GRAFANA_LOG_LEVEL:-info}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-provisioning:/etc/grafana/provisioning
+      - grafana-plugins:/var/lib/grafana/plugins
+      - grafana-logs:/var/log/grafana
+    networks:
+      - zabbix-network
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    user: "472:0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres-data:
+    driver: local
+    name: zabbix-postgres-data
+  zabbix-server-alertscripts:
+    driver: local
+    name: zabbix-server-alertscripts
+  zabbix-server-externalscripts:
+    driver: local
+    name: zabbix-server-externalscripts
+  zabbix-server-modules:
+    driver: local
+    name: zabbix-server-modules
+  zabbix-server-enc:
+    driver: local
+    name: zabbix-server-enc
+  zabbix-server-ssh:
+    driver: local
+    name: zabbix-server-ssh
+  zabbix-server-ssl:
+    driver: local
+    name: zabbix-server-ssl
+  zabbix-server-ssl-certs:
+    driver: local
+    name: zabbix-server-ssl-certs
+  zabbix-server-ssl-keys:
+    driver: local
+    name: zabbix-server-ssl-keys
+  zabbix-server-ssl-ca:
+    driver: local
+    name: zabbix-server-ssl-ca
+  zabbix-web-etc:
+    driver: local
+    name: zabbix-web-etc
+  grafana-data:
+    driver: local
+    name: grafana-data
+  grafana-provisioning:
+    driver: local
+    name: grafana-provisioning
+  grafana-plugins:
+    driver: local
+    name: grafana-plugins
+  grafana-logs:
+    driver: local
+    name: grafana-logs
 
 networks:
-  zabbix:
+  zabbix-network:
     driver: bridge
+    name: zabbix-network
     ipam:
-      driver: default
       config:
-        - subnet: 172.16.238.0/24
+        - subnet: 10.200.1.0/24
+          gateway: 10.200.1.1
