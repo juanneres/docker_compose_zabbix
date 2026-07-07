@@ -19,6 +19,7 @@ Basta seguir os passos na ordem.
 4. [Subir o ambiente](#4-subir-o-ambiente)
 5. [Verificar se está tudo no ar](#5-verificar-se-está-tudo-no-ar)
    - [5.1. Descobrir o IP do servidor](#51-descobrir-o-ip-do-servidor)
+   - [5.2. (Opcional) Deixar o IP do servidor fixo](#52-opcional-mas-recomendado-deixar-o-ip-do-servidor-fixo)
 6. [Acessar o Zabbix Web](#6-acessar-o-zabbix-web)
 7. [Acessar o Grafana](#7-acessar-o-grafana)
 8. [Habilitar o plugin do Zabbix no Grafana](#8-habilitar-o-plugin-do-zabbix-no-grafana)
@@ -289,6 +290,97 @@ Ele mostra algo como `192.168.1.50`. Esse é o seu `IP_DO_SERVIDOR`.
 > sudo ufw allow 8080/tcp   # Zabbix Web (ajuste se mudou ZBX_WEB_PORT)
 > sudo ufw allow 3000/tcp   # Grafana (ajuste se mudou GRAFANA_PORT)
 > ```
+
+### 5.2. (Opcional, mas recomendado) Deixar o IP do servidor fixo
+
+Por padrão, o servidor pega o IP **automaticamente via DHCP** do roteador. Esse IP
+pode **mudar sozinho** (ao reiniciar, após dias ligado, ou se o roteador reiniciar).
+
+**Por que isso é um problema aqui?** O endereço de acesso é o próprio IP do
+servidor. Se o IP mudar, várias coisas quebram de uma vez:
+
+- 🔗 **Você perde o acesso**: `http://IP_ANTIGO:8080` (Zabbix) e `:3000` (Grafana)
+  param de responder — inclusive favoritos do navegador.
+- 📊 **Links do Grafana quebram**: o `GRAFANA_ROOT_URL` do `.env` fica apontando
+  para o IP velho (compartilhamento e links de alerta viram endereços mortos).
+- 🖥️ **Monitoramento fica cego**: qualquer host/agent do Zabbix configurado para
+  falar com o servidor pelo IP deixa de reportar até você corrigir manualmente.
+- 🧭 Você precisa **redescobrir o IP** (etapa 5.1) toda vez que ele mudar.
+
+Fixar o IP resolve tudo isso de vez. Há **duas formas** — escolha uma:
+
+#### Opção A — Reserva de DHCP no roteador (mais simples)
+
+No painel do seu roteador, procure por **DHCP / Reserva de endereço** e associe o
+**MAC** da placa de rede do servidor a um IP fixo. Pegue o MAC no servidor com:
+
+```bash
+ip -br link
+```
+
+Vantagem: não mexe em nada no servidor. Boa opção em redes domésticas/pequenas.
+
+#### Opção B — IP estático no próprio Ubuntu (via Netplan)
+
+O Ubuntu Server usa o **Netplan** para configurar rede. Passo a passo:
+
+**1. Descubra o nome da interface e o gateway** (roteador):
+
+```bash
+ip -br a           # nome da placa, ex.: ens18, eth0, enp0s3
+ip route | grep default   # mostra o gateway, ex.: default via 192.168.1.1
+```
+
+**2. Edite o arquivo do Netplan** (o nome pode variar; liste com `ls /etc/netplan/`):
+
+```bash
+sudo nano /etc/netplan/50-cloud-init.yaml
+```
+
+**3. Deixe o conteúdo assim** (ajuste `ens18`, os IPs e o gateway aos seus valores):
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    ens18:                       # nome da SUA interface (passo 1)
+      dhcp4: no                  # desliga o IP automático
+      addresses:
+        - 192.168.1.50/24        # IP fixo que o servidor terá + máscara (/24)
+      routes:
+        - to: default
+          via: 192.168.1.1       # IP do roteador (gateway, passo 1)
+      nameservers:
+        addresses:
+          - 192.168.1.1          # DNS (pode ser o roteador, ou 8.8.8.8 / 1.1.1.1)
+          - 1.1.1.1
+```
+
+> ⚠️ Escolha um IP **fora da faixa que o roteador distribui via DHCP** (ou fora do
+> pool), para dois aparelhos nunca receberem o mesmo endereço. YAML é sensível à
+> **indentação** (use espaços, nunca Tab).
+
+**4. Teste antes de aplicar** — o `try` reverte sozinho em ~120s se algo der
+errado, evitando que você fique trancado fora do servidor:
+
+```bash
+sudo netplan try
+```
+
+Se a rede continuar funcionando, confirme com Enter. Depois aplique de vez:
+
+```bash
+sudo netplan apply
+```
+
+**5. Confirme o novo IP:**
+
+```bash
+hostname -I | awk '{print $1}'
+```
+
+> ✅ Depois de fixar o IP, se ele for **diferente** do que você usou até aqui,
+> atualize o `GRAFANA_ROOT_URL` no `.env` e rode `docker compose up -d` de novo.
 
 ---
 
