@@ -18,6 +18,7 @@ Basta seguir os passos na ordem.
 3. [Configurar o arquivo `.env`](#3-configurar-o-arquivo-env)
 4. [Subir o ambiente](#4-subir-o-ambiente)
 5. [Verificar se está tudo no ar](#5-verificar-se-está-tudo-no-ar)
+   - [5.1. Descobrir o IP do servidor](#51-descobrir-o-ip-do-servidor)
 6. [Acessar o Zabbix Web](#6-acessar-o-zabbix-web)
 7. [Acessar o Grafana](#7-acessar-o-grafana)
 8. [Habilitar o plugin do Zabbix no Grafana](#8-habilitar-o-plugin-do-zabbix-no-grafana)
@@ -204,8 +205,8 @@ POSTGRES_PASSWORD=zabbix        # ⚠️ troque por uma senha forte
 POSTGRES_DB=zabbix
 
 # --- Portas que você acessa pelo navegador ---
-ZBX_WEB_PORT=8080               # endereço do Zabbix: http://localhost:8080
-GRAFANA_PORT=3000               # endereço do Grafana: http://localhost:3000
+ZBX_WEB_PORT=8080               # Zabbix: http://IP_DO_SERVIDOR:8080
+GRAFANA_PORT=3000               # Grafana: http://IP_DO_SERVIDOR:3000
 
 # --- Login inicial do Grafana ---
 GRAFANA_ADMIN_USER=admin
@@ -264,13 +265,39 @@ zabbix-web        Up (healthy)
 > ⏳ Logo depois de subir, alguns podem aparecer como `health: starting`.
 > Espere ~40 segundos e rode `docker compose ps` de novo até virarem `healthy`.
 
+### 5.1. Descobrir o IP do servidor
+
+O Ubuntu Server **não tem interface gráfica nem navegador**. Você vai acessar o
+Zabbix e o Grafana **de outro computador da rede** (seu notebook, por exemplo),
+abrindo o navegador dele e apontando para o **IP do servidor**.
+
+Ou seja: onde este guia mostrar `IP_DO_SERVIDOR`, troque pelo endereço IP real
+da máquina Ubuntu. Para descobri-lo, rode **no servidor**:
+
+```bash
+hostname -I | awk '{print $1}'
+```
+
+Ele mostra algo como `192.168.1.50`. Esse é o seu `IP_DO_SERVIDOR`.
+
+> 💡 Se o comando acima não existir, use `ip addr` e procure o endereço da sua
+> placa de rede (algo como `192.168.x.x` ou `10.x.x.x`).
+>
+> 🔥 **Firewall:** se você usa o `ufw` no servidor, libere as portas para conseguir
+> acessar de outra máquina:
+> ```bash
+> sudo ufw allow 8080/tcp   # Zabbix Web (ajuste se mudou ZBX_WEB_PORT)
+> sudo ufw allow 3000/tcp   # Grafana (ajuste se mudou GRAFANA_PORT)
+> ```
+
 ---
 
 ## 6. Acessar o Zabbix Web
 
-Abra no navegador (troque a porta se você alterou `ZBX_WEB_PORT`):
+De outro computador da rede, abra no navegador (troque `IP_DO_SERVIDOR` pelo IP da
+[etapa 5.1](#51-descobrir-o-ip-do-servidor) e a porta, se você alterou `ZBX_WEB_PORT`):
 
-👉 **http://localhost:8080**
+👉 **http://IP_DO_SERVIDOR:8080**  → exemplo: `http://192.168.1.50:8080`
 
 Login inicial padrão do Zabbix:
 
@@ -288,9 +315,10 @@ esquerdo) → **User settings** → **Change password**.
 
 ## 7. Acessar o Grafana
 
-Abra no navegador (troque a porta se você alterou `GRAFANA_PORT`):
+De outro computador da rede, abra no navegador (troque `IP_DO_SERVIDOR` pelo IP da
+[etapa 5.1](#51-descobrir-o-ip-do-servidor) e a porta, se você alterou `GRAFANA_PORT`):
 
-👉 **http://localhost:3000**
+👉 **http://IP_DO_SERVIDOR:3000**  → exemplo: `http://192.168.1.50:3000`
 
 Login inicial (o que você definiu no `.env`, padrão):
 
@@ -300,6 +328,11 @@ Login inicial (o que você definiu no `.env`, padrão):
 | Senha   | `admin` |
 
 Na primeira entrada o Grafana pede para **definir uma nova senha** — defina uma.
+
+> 💡 Para os links internos do Grafana (compartilhamento, alertas) apontarem
+> certo, edite no `.env` o campo `GRAFANA_ROOT_URL` trocando `localhost` pelo IP
+> do servidor — por ex. `GRAFANA_ROOT_URL=http://192.168.1.50:3000` — e rode
+> `docker compose up -d` de novo para aplicar.
 
 ---
 
