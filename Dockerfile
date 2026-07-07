@@ -1,4 +1,4 @@
-FROM zabbix/zabbix-server-mysql:latest
+FROM zabbix/zabbix-server-pgsql:latest
 
 # Use o usuário root para instalar os pacotes
 USER root
